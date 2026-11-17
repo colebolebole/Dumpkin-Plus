@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Built on the platform's own Material theme (Android 5.0+), so no AndroidX or Material library is needed. -->
+    <style name="Theme.Dark" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF1A110C</item>
+        <item name="android:colorBackground">#FF1A110C</item>
+        <item name="android:colorPrimary">#FF2A1D15</item>
+        <item name="android:colorPrimaryDark">#FF120B07</item>
+        <item name="android:colorAccent">#FFF58220</item>
+        <item name="android:statusBarColor">#FF120B07</item>
+        <item name="android:navigationBarColor">#FF1A110C</item>
+        <item name="android:textColorPrimary">#FFF2E6DC</item>
+        <item name="android:textColorSecondary">#FFB9A89A</item>
+    </style>
+
+    <style name="Theme.Light" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFFFF8F4</item>
+        <item name="android:colorBackground">#FFFFF8F4</item>
+        <item name="android:colorPrimary">#FFF6EBE2</item>
+        <item name="android:colorPrimaryDark">#FFE4D3C5</item>
+        <item name="android:colorAccent">#FFB85800</item>
+        <item name="android:statusBarColor">#FFE4D3C5</item>
+        <item name="android:navigationBarColor">#FFFFF8F4</item>
+        <item name="android:textColorPrimary">#FF241A12</item>
+        <item name="android:textColorSecondary">#FF6B5A4D</item>
+    </style>
+
+    <style name="Dialog.Dark" parent="android:Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#FFF58220</item>
+    </style>
+
+    <style name="Dialog.Light" parent="android:Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#FFB85800</item>
+    </style>
+</resources>

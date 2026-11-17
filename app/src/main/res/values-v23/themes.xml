@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark status-bar icons on the light theme: the attribute exists from Android 6.0. -->
+    <style name="Theme.Light" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFFFF8F4</item>
+        <item name="android:colorBackground">#FFFFF8F4</item>
+        <item name="android:colorPrimary">#FFF6EBE2</item>
+        <item name="android:colorPrimaryDark">#FFE4D3C5</item>
+        <item name="android:colorAccent">#FFB85800</item>
+        <item name="android:statusBarColor">#FFFFF8F4</item>
+        <item name="android:navigationBarColor">#FFFFF8F4</item>
+        <item name="android:textColorPrimary">#FF241A12</item>
+        <item name="android:textColorSecondary">#FF6B5A4D</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
