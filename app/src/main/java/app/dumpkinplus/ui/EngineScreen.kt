@@ -24,7 +24,7 @@ class EngineScreen(act: MainActivity) : Screen(act) {
     }
 
     override fun onStart() {
-        if (app.engines.state.value.remote.isEmpty() && app.engines.officialBuildAvailable) app.engines.checkRemote()
+        if (app.engines.state.value.remote.isEmpty() && app.engines.hasRemote) app.engines.checkRemote()
         scope.launch {
             combine(app.engines.state, app.manager.active) { s, a -> s to a.isNotEmpty() }
                 .collect { (s, busy) -> render(s, busy) }
@@ -42,11 +42,21 @@ class EngineScreen(act: MainActivity) : Screen(act) {
         titles.add(act.text("Pumpkin server builds", 14f, Pal.dim))
         head.add(titles, 0, WRAP, 1f)
         if (state.checking) head.addView(ProgressBar(act).apply { isIndeterminate = true }, LinearLayout.LayoutParams(act.dp(32), act.dp(32)))
-        else if (official) head.add(act.button("Refresh", BtnKind.Tonal) { app.engines.checkRemote() }, WRAP, WRAP)
+        else if (app.engines.hasRemote) head.add(act.button("Refresh", BtnKind.Tonal) { app.engines.checkRemote() }, WRAP, WRAP)
         list.add(head)
 
         if (!supported) {
             list.add(info("Unsupported CPU", "Pumpkin can't run on this phone's processor (${app.engines.arch.label}).", true))
+        } else if (app.engines.communityBuildAvailable) {
+            list.add(
+                info(
+                    "Using the unofficial 32-bit build",
+                    (if (app.engines.needsNewerAndroid) "Pumpkin's official build needs Android 7.0 or newer. " else "Pumpkin doesn't publish a 32-bit ARM build. ") +
+                        "This phone can run 32-bit ARM programs, so it is offered an unofficial 32-bit build made for Android 5.0 and newer. " +
+                        "It hasn't been tested on many phones yet; if it fails, the console says why.",
+                    false,
+                )
+            )
         } else if (app.engines.needsNewerAndroid) {
             list.add(info("Official build needs Android 7.0+", NEEDS_NEWER_ANDROID, true))
         } else if (!official) {
@@ -65,7 +75,7 @@ class EngineScreen(act: MainActivity) : Screen(act) {
         if (state.installed.isEmpty()) list.add(act.text("Nothing installed yet.", 14f, Pal.dim))
         state.installed.forEach { list.add(installedCard(it, serversActive)) }
 
-        if (official) {
+        if (app.engines.hasRemote) {
             list.add(act.section("Available on GitHub"))
             state.remote.forEach { r -> list.add(remoteCard(r, state, supported)) }
             if (state.remote.isEmpty() && !state.checking && state.message == null) {

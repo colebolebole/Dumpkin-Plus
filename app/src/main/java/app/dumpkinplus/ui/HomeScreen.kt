@@ -90,6 +90,8 @@ class HomeScreen(act: MainActivity) : Screen(act) {
             act.text(
                 when {
                     official -> "Servers need the Pumpkin server binary. It's a one-time download from the official GitHub releases."
+                    app.engines.communityBuildAvailable -> "Servers need the Pumpkin server binary. Pumpkin has no official build for this phone, " +
+                        "but an unofficial 32-bit ARM build for Android 5.0+ is available to download."
                     app.engines.needsNewerAndroid -> "Pumpkin's official build needs Android 7.0 or newer, and this phone has an older Android. " +
                         "You can still run a server if you import an engine built for older Android."
                     supported -> "Pumpkin only publishes engines for arm64 phones, and this one is ${app.engines.arch.label}. " +
@@ -99,7 +101,7 @@ class HomeScreen(act: MainActivity) : Screen(act) {
                 13.5f, Pal.dim,
             )
         )
-        if (supported) c.add(act.button(if (official) "Open Engine" else "Open Engine to import") { act.setTab(1) }, WRAP, WRAP)
+        if (supported) c.add(act.button(if (app.engines.hasRemote) "Open Engine" else "Open Engine to import") { act.setTab(1) }, WRAP, WRAP)
         return c
     }
 

@@ -32,7 +32,7 @@ that stood in the way of older devices:
 | UI | Jetpack Compose, Material 3 Expressive | Plain platform views, no libraries |
 | APK size (release) | Compose and Material 3 add several MB | **about 0.25 MB** |
 | Runtime dependencies | AndroidX, Compose, Material 3, coroutines | coroutines only |
-| Engine downloads | arm64 | arm64, plus **import from a file** for everything else |
+| Engine downloads | arm64 (Android 7+) | arm64 (Android 7+), **unofficial 32-bit ARM (Android 5+)**, and **import from a file** |
 | Android package | `app.dumpkin` | `app.dumpkinplus` (installs next to Dumpkin) |
 
 The server side is the same code as Dumpkin: the same `pumpkin.toml` editing, the same per-server settings, memory limit,
@@ -48,8 +48,8 @@ the other.
   lines instead of 2000, the dashboard polls less often, and screen refreshes are slower and cheaper.
 - **Defaults sized for the phone.** On a phone with about 2.5 GB of RAM or less, new servers start with a shorter view
   distance (the new **Low-end** quick pick: 4 / 3 chunks) and 8 players instead of 20.
-- **Import an engine from a file.** Very old Android versions often can't verify GitHub's certificates, and 32-bit phones
-  have no official build. Copy the engine to the phone and pick it in the Engine tab. It is checked against the phone's CPU
+- **Import an engine from a file.** Very old Android versions often can't verify GitHub's certificates, and some CPUs
+  have no download. Copy the engine to the phone and pick it in the Engine tab. It is checked against the phone's CPU
   before it is ever run, so a wrong-architecture file is refused with a clear message.
 - **Android-5-aware Tuning tab.** No Doze before Android 6, so the battery check says so instead of nagging; old Snapdragon
   chips (MSM8916, MSM8994, ...) are named from `/proc/cpuinfo`; the Wi-Fi and notification checks use APIs that exist on 5.0.
@@ -57,28 +57,26 @@ the other.
 
 ## Before you install: read this
 
-Whether your phone can host depends on its CPU, not just on this app.
+Whether your phone can host depends on its CPU and Android version, not just on this app.
 
 - **arm64 phones on Android 7.0 or newer**: use the official Pumpkin download in the Engine tab.
-- **Android 5.0 and 6.0 phones, even arm64 ones** (Galaxy S6, Nexus 9, Nexus 5X and 6P on their original Android): the official
-  build **does not start**. It is linked for Android 7.0 and imports `getifaddrs()`, which only exists from Android 7.0, and it
-  binds every symbol at load, so Android 5 and 6 refuse to load it. Dumpkin+ detects this, hides the download and tells you,
-  but you need an engine built for older Android (see below) and imported.
-- **32-bit ARM phones** (a lot of Android 5 era budget phones): Pumpkin does not publish a build for these. Dumpkin+ will
-  run one if you build it and import it, but whether Pumpkin compiles and runs well on 32-bit is untested.
-- **x86 devices** and everything else: same as 32-bit ARM: import only.
-- The official engine is about **120 MB**, and a Minecraft world adds to that. Check you have the space.
+- **Android 5.0 and 6.0 phones, and all 32-bit ARM phones**: the Engine tab offers the **unofficial 32-bit ARM build** from
+  [colebolebole/pumpkin-android-armv7](https://github.com/colebolebole/pumpkin-android-armv7/releases). It is built against
+  Android API 21 and works on 32-bit phones and on 64-bit ones that still run 32-bit apps (a Galaxy S6 does). The app checks
+  the download against the SHA-256 GitHub reports and refuses a file that doesn't match.
+  The official build can't be used here: it is linked for Android 7.0 and imports `getifaddrs()`, which only exists from
+  Android 7.0, and it binds every symbol at load, so Android 5 and 6 refuse to load it.
+- **x86 devices** and everything else: import only.
+- The engine is about **90 MB** (32-bit) or **120 MB** (official arm64), and a Minecraft world adds to that. Check you have the space.
 - Pumpkin needs a real amount of RAM. On phones with 1 to 2 GB expect one small server for a few friends at best.
 
 **What has and hasn't been checked.** It builds, the unit tests pass, lint reports no use of an API newer than 21, and the real
 screens were built and driven on emulated Android 5.0 and Android 14. It has **not** been run on a physical Android 5 phone.
 
-I downloaded the official `pumpkin-aarch64-android` build and read its ELF headers (without running it). It is a PIE arm64
-binary built for API 24 that links `libc`, `libm` and `libdl`, imports `getifaddrs` and `freeifaddrs` (both added to Android in
-7.0) and binds all symbols at load. Everything else it imports exists on Android 5.0. So **on Android 5 and 6 you need a
-different engine, and whether one works well is untested.** Realistic options are building Pumpkin with the Android NDK at API 21
-(its network-interface lookup would need replacing, since `getifaddrs` isn't there), or a static musl build (which runs on any
-Android version but can't resolve DNS on Android, so online mode and skins won't work; use offline mode).
+I downloaded both engines and read their headers without running them. The official `pumpkin-aarch64-android` is a PIE arm64
+binary built for API 24 that imports `getifaddrs` and `freeifaddrs` (both added to Android in 7.0). The community
+`pumpkin-armv7-android` is a 32-bit ARM ELF whose SHA-256 matches the one in its release. Neither has been run on a real phone,
+and the 32-bit build's own notes say it is not tested on a device yet. **Treat the 32-bit build as experimental.**
 
 If a server won't launch, the console says why. Please open an issue with the phone model and the message.
 
@@ -86,7 +84,7 @@ If a server won't launch, the console says why. Please open an issue with the ph
 
 1. Download `Dumpkin+-<version>.apk` from the Releases page (or [build it](#build)).
 2. Allow installs from unknown sources, then open the APK on the phone.
-3. Open the **Engine** tab. On an arm64 phone with Android 7.0+, download a Pumpkin build. Otherwise use **Import from file**.
+3. Open the **Engine** tab and download the engine it offers for your phone (official arm64, or the unofficial 32-bit build). Use **Import from file** for anything else.
 4. Open the **Tuning** tab and deal with anything it flags.
 5. On the **Servers** tab, tap **New server**, then start it. Players on the same Wi-Fi join with the address on the server screen.
 

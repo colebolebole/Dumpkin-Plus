@@ -17,12 +17,15 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import javax.net.ssl.SSLException
 
 enum class Channel(val label: String, val tag: String?, val blurb: String) {
     Stable("Stable", null, "Latest tagged release. Best choice for most people."),
     Canary("Canary", "canary", "Rolling build with the newest changes, not fully optimised."),
     Nightly("Nightly", "nightly", "Rolling, fully optimised build."),
+    /** Not from Pumpkin: a community 32-bit ARM build of Pumpkin made for Dumpkin+ (Android 5.0+). Released from its own repo. */
+    Armv7("32-bit ARM", null, "Unofficial 32-bit ARM build for Android 5.0 and newer. Not tested on many phones yet."),
 }
 
 data class InstalledEngine(
@@ -41,10 +44,15 @@ data class RemoteEngine(
     val url: String,
     val size: Long,
     val updated: String,
+    /** Expected SHA-256 of the file (from GitHub's asset digest), checked after the download. */
+    val sha256: String? = null,
 ) {
     val id: String
-        get() = if (channel == Channel.Stable) tag.sanitize()
-        else "${channel.name.lowercase()}-" + updated.filter { it.isLetterOrDigit() }
+        get() = when (channel) {
+            Channel.Stable -> tag.sanitize()
+            Channel.Armv7 -> "armv7-" + tag.sanitize()
+            else -> "${channel.name.lowercase()}-" + updated.filter { it.isLetterOrDigit() }
+        }
 }
 
 data class EngineUiState(
@@ -88,6 +96,18 @@ class EngineManager(ctx: Context) {
     /** An arm64 phone that is too old for the official build: it imports getifaddrs(), which Android only has from 7.0. */
     val needsNewerAndroid: Boolean = arch == Arch.Arm64 && Build.VERSION.SDK_INT < OFFICIAL_MIN_API
 
+    /** This phone can run 32-bit ARM programs: it is a 32-bit phone, or a 64-bit one that still supports 32-bit apps. */
+    private val runs32BitArm: Boolean = Build.SUPPORTED_32_BIT_ABIS.any { it.startsWith("armeabi") }
+
+    /** The community 32-bit ARM build is offered when the official one can't run here. It is built for Android 5.0+. */
+    val communityBuildAvailable: Boolean = !officialBuildAvailable && runs32BitArm
+
+    /** There is something to download for this phone. */
+    val hasRemote: Boolean get() = officialBuildAvailable || communityBuildAvailable
+
+    /** An engine built for [elf] can run here: same CPU, or 32-bit ARM on a phone that supports it (including arm64 ones). */
+    private fun canRun(elf: Arch): Boolean = elf == arch || (elf == Arch.Arm32 && runs32BitArm)
+
     fun resolve(id: String?): InstalledEngine? {
         val list = _state.value.installed
         return list.firstOrNull { it.id == id } ?: list.firstOrNull()
@@ -98,7 +118,11 @@ class EngineManager(ctx: Context) {
         scope.launch {
             _state.update { it.copy(checking = true, message = null) }
             var failure: Exception? = null
-            val found = Channel.entries.mapNotNull { ch ->
+            val channels = buildList {
+                if (officialBuildAvailable) addAll(listOf(Channel.Stable, Channel.Canary, Channel.Nightly))
+                if (communityBuildAvailable) add(Channel.Armv7)
+            }
+            val found = channels.mapNotNull { ch ->
                 try {
                     fetch(ch)
                 } catch (e: Exception) {
@@ -112,8 +136,8 @@ class EngineManager(ctx: Context) {
                     remote = found,
                     message = when {
                         found.isNotEmpty() -> null
-                        needsNewerAndroid -> NEEDS_NEWER_ANDROID
-                        !officialBuildAvailable ->
+                        needsNewerAndroid && !communityBuildAvailable -> NEEDS_NEWER_ANDROID
+                        !hasRemote ->
                             "Pumpkin doesn't publish a build for ${arch.label} phones. Build one yourself and use Import (see the README)."
                         failure != null -> explain(failure!!, "Couldn't reach GitHub")
                         else -> "Couldn't find an Android build. Check your connection and try again."
@@ -135,6 +159,7 @@ class EngineManager(ctx: Context) {
                 val total = conn.contentLength.toLong().takeIf { it > 0 } ?: r.size
                 var done = 0L
                 var lastPublished = 0f
+                val digest = MessageDigest.getInstance("SHA-256")
                 conn.inputStream.use { input ->
                     part.outputStream().use { out ->
                         val buf = ByteArray(32 * 1024)
@@ -142,6 +167,7 @@ class EngineManager(ctx: Context) {
                             val n = input.read(buf)
                             if (n < 0) break
                             out.write(buf, 0, n)
+                            digest.update(buf, 0, n)
                             done += n
                             if (total > 0) {
                                 val p = (done.toFloat() / total).coerceIn(0f, 1f)
@@ -152,6 +178,11 @@ class EngineManager(ctx: Context) {
                             }
                         }
                     }
+                }
+                // A truncated or tampered download must never be installed: check it against GitHub's own checksum.
+                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                if (r.sha256 != null && !actual.equals(r.sha256, ignoreCase = true)) {
+                    throw IOException("the file's checksum doesn't match what GitHub reports, so it was discarded")
                 }
                 install(part, dir, JSONObject().put("label", r.label).put("channel", r.channel.label))
                 _state.update { it.copy(installed = scanInstalled(), downloadingId = null, progress = 1f) }
@@ -194,7 +225,7 @@ class EngineManager(ctx: Context) {
         val read = part.inputStream().use { it.read(head) }
         val elf = ElfInfo.parse(if (read == head.size) head else head.copyOf(maxOf(read, 0)))
             ?: throw IOException("that file is not an executable")
-        if (elf.arch != arch) {
+        if (!canRun(elf.arch)) {
             throw IOException("it was built for ${elf.arch.label} but this phone is ${arch.label}")
         }
         val bin = File(dir, "pumpkin")
@@ -232,7 +263,8 @@ class EngineManager(ctx: Context) {
     }
 
     private fun fetch(ch: Channel): RemoteEngine? {
-        val api = "https://api.github.com/repos/Pumpkin-MC/Pumpkin/releases"
+        val community = ch == Channel.Armv7
+        val api = "https://api.github.com/repos/" + (if (community) COMMUNITY_ARMV7_REPO else "Pumpkin-MC/Pumpkin") + "/releases"
         val url = if (ch.tag == null) "$api/latest" else "$api/tags/${ch.tag}"
         val conn = open(url, "application/vnd.github+json")
         val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
@@ -240,17 +272,22 @@ class EngineManager(ctx: Context) {
         for (i in 0 until assets.length()) {
             val a = assets.getJSONObject(i)
             val name = a.getString("name")
-            if (wantedAsset(name)) {
+            if (if (community) name.lowercase().let { it.contains("armv7") && !it.endsWith(".txt") } else wantedAsset(name)) {
                 val tag = json.getString("tag_name")
                 val updated = a.optString("updated_at", json.optString("published_at"))
                 return RemoteEngine(
                     channel = ch,
                     tag = tag,
-                    label = if (ch == Channel.Stable) tag else "${ch.label} ${updated.take(10)}",
+                    label = when (ch) {
+                        Channel.Stable -> tag
+                        Channel.Armv7 -> "${ch.label} $tag"
+                        else -> "${ch.label} ${updated.take(10)}"
+                    },
                     assetName = name,
                     url = a.getString("browser_download_url"),
                     size = a.optLong("size"),
                     updated = updated,
+                    sha256 = a.optString("digest").removePrefix("sha256:").takeIf { it.length == 64 },
                 )
             }
         }
@@ -287,6 +324,9 @@ class EngineManager(ctx: Context) {
 
 /** The official Pumpkin Android build is linked for API 24 and imports getifaddrs(), so it can't load on Android 5 or 6. */
 const val OFFICIAL_MIN_API = 24
+
+/** Where the community 32-bit ARM build of Pumpkin (Android 5.0+) is released. */
+const val COMMUNITY_ARMV7_REPO = "colebolebole/pumpkin-android-armv7"
 
 const val NEEDS_NEWER_ANDROID =
     "Pumpkin's official Android build needs Android 7.0 or newer, so it can't start on this phone. " +

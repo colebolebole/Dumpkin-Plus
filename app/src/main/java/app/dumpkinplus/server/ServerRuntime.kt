@@ -5,6 +5,7 @@ import app.dumpkinplus.data.MemoryAction
 import app.dumpkinplus.data.RuntimeState
 import app.dumpkinplus.data.ServerProfile
 import app.dumpkinplus.data.Status
+import app.dumpkinplus.engine.ElfInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -255,7 +256,14 @@ class ServerRuntime(
             builder(listOf(binary.absolutePath)).start()
         } catch (e: IOException) {
             // Some devices refuse a direct exec from app storage; going through the system linker often works.
-            val linker = listOf("/system/bin/linker64", "/system/bin/linker").firstOrNull { File(it).exists() } ?: throw e
+            // A 32-bit engine (the community armv7 build, even on a 64-bit phone) needs the 32-bit linker.
+            val is64 = runCatching {
+                val head = ByteArray(ElfInfo.HEADER_SIZE)
+                binary.inputStream().use { it.read(head) }
+                ElfInfo.parse(head)?.is64Bit
+            }.getOrNull() ?: true
+            val linkers = if (is64) listOf("/system/bin/linker64", "/system/bin/linker") else listOf("/system/bin/linker")
+            val linker = linkers.firstOrNull { File(it).exists() } ?: throw e
             appendLog("Direct launch was blocked (${e.message}); retrying via the system linker…")
             builder(listOf(linker, binary.absolutePath)).start()
         }
