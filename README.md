@@ -48,6 +48,11 @@ the other.
   lines instead of 2000, the dashboard polls less often, and screen refreshes are slower and cheaper.
 - **Defaults sized for the phone.** On a phone with about 2.5 GB of RAM or less, new servers start with a shorter view
   distance (the new **Low-end** quick pick: 4 / 3 chunks) and 8 players instead of 20.
+- **Engine update checks.** The Engine tab checks for newer engine builds: Pumpkin's own channels and, on phones that use it, the
+  [32-bit ARM releases](https://github.com/colebolebole/pumpkin-android-armv7/releases) (the newest few, pre-releases included).
+  It flags a new version, a new nightly, or the same version rebuilt (a changed checksum), puts a dot on the Engine tab, and
+  updates in one tap. It checks when the app starts, at most every 6 hours (switch it off on the Engine tab), or on demand
+  with **Check for updates**. This is for engines only: Dumpkin+ doesn't update itself.
 - **Import an engine from a file.** Very old Android versions often can't verify GitHub's certificates, and some CPUs
   have no download. Copy the engine to the phone and pick it in the Engine tab. It is checked against the phone's CPU
   before it is ever run, so a wrong-architecture file is refused with a clear message.

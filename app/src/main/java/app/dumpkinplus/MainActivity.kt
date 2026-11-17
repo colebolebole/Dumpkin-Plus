@@ -161,6 +161,12 @@ class MainActivity : Activity() {
         // Keep the display on while a server runs, if the user asked for it (best ping needs the screen on).
         val s = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         scope = s
+        // A dot on the Engine tab when a newer engine build is waiting.
+        s.launch {
+            dumpkin.engines.state.collect { st ->
+                tabViews.getOrNull(1)?.text = if (st.updates.isNotEmpty()) "Engine •" else "Engine"
+            }
+        }
         s.launch {
             combine(dumpkin.keepScreenOn, dumpkin.manager.active) { keep, active -> keep && active.isNotEmpty() }
                 .collect { hold ->

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -34,6 +35,9 @@ data class InstalledEngine(
     val channel: String,
     val sizeBytes: Long,
     val file: File,
+    /** Release tag and checksum recorded at install time, used to spot newer builds. Null for imported files. */
+    val tag: String? = null,
+    val sha256: String? = null,
 )
 
 data class RemoteEngine(
@@ -46,6 +50,7 @@ data class RemoteEngine(
     val updated: String,
     /** Expected SHA-256 of the file (from GitHub's asset digest), checked after the download. */
     val sha256: String? = null,
+    val prerelease: Boolean = false,
 ) {
     val id: String
         get() = when (channel) {
@@ -63,6 +68,10 @@ data class EngineUiState(
     val progress: Float = 0f,
     val message: String? = null,
     val importing: Boolean = false,
+    /** Newest builds that are newer than what is installed (see [EngineUpdates]). */
+    val updates: List<RemoteEngine> = emptyList(),
+    /** When the last successful check finished, in epoch millis; 0 if never. */
+    val lastChecked: Long = 0L,
 )
 
 private fun String.sanitize() = replace(Regex("[^A-Za-z0-9._-]"), "_")
@@ -79,8 +88,9 @@ class EngineManager(ctx: Context) {
     private val app = ctx.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val root = File(app.filesDir, "engine").apply { mkdirs() }
+    private val prefs = app.getSharedPreferences("dumpkin_engine", Context.MODE_PRIVATE)
 
-    private val _state = MutableStateFlow(EngineUiState(installed = scanInstalled()))
+    private val _state = MutableStateFlow(EngineUiState(installed = scanInstalled(), lastChecked = prefs.getLong("lastChecked", 0L)))
     val state: StateFlow<EngineUiState> = _state.asStateFlow()
 
     /** This phone's CPU family, from its preferred ABI. */
@@ -108,6 +118,20 @@ class EngineManager(ctx: Context) {
     /** An engine built for [elf] can run here: same CPU, or 32-bit ARM on a phone that supports it (including arm64 ones). */
     private fun canRun(elf: Arch): Boolean = elf == arch || (elf == Arch.Arm32 && runs32BitArm)
 
+    /** Whether to look for new engine builds by itself. On by default; it is one small request every few hours. */
+    var autoCheck: Boolean
+        get() = prefs.getBoolean("autoCheck", true)
+        set(v) {
+            prefs.edit().putBoolean("autoCheck", v).apply()
+        }
+
+    /** Called when the app starts: looks for new builds if it is enabled and the last check is old enough. */
+    fun autoCheckIfDue(now: Long = System.currentTimeMillis()) {
+        if (!autoCheck || !hasRemote) return
+        if (now - prefs.getLong("lastChecked", 0L) < AUTO_CHECK_INTERVAL_MS) return
+        checkRemote()
+    }
+
     fun resolve(id: String?): InstalledEngine? {
         val list = _state.value.installed
         return list.firstOrNull { it.id == id } ?: list.firstOrNull()
@@ -122,18 +146,23 @@ class EngineManager(ctx: Context) {
                 if (officialBuildAvailable) addAll(listOf(Channel.Stable, Channel.Canary, Channel.Nightly))
                 if (communityBuildAvailable) add(Channel.Armv7)
             }
-            val found = channels.mapNotNull { ch ->
+            val found = channels.flatMap { ch ->
                 try {
-                    fetch(ch)
+                    fetchAll(ch)
                 } catch (e: Exception) {
                     failure = e
-                    null
+                    emptyList()
                 }
             }
+            val now = System.currentTimeMillis()
+            // A check that reached GitHub counts, even if it found nothing, so auto-check doesn't retry on every launch.
+            if (failure == null) prefs.edit().putLong("lastChecked", now).apply()
             _state.update {
                 it.copy(
                     checking = false,
                     remote = found,
+                    updates = EngineUpdates.compute(it.installed, found),
+                    lastChecked = if (failure == null) now else it.lastChecked,
                     message = when {
                         found.isNotEmpty() -> null
                         needsNewerAndroid && !communityBuildAvailable -> NEEDS_NEWER_ANDROID
@@ -184,8 +213,11 @@ class EngineManager(ctx: Context) {
                 if (r.sha256 != null && !actual.equals(r.sha256, ignoreCase = true)) {
                     throw IOException("the file's checksum doesn't match what GitHub reports, so it was discarded")
                 }
-                install(part, dir, JSONObject().put("label", r.label).put("channel", r.channel.label))
-                _state.update { it.copy(installed = scanInstalled(), downloadingId = null, progress = 1f) }
+                install(
+                    part, dir,
+                    JSONObject().put("label", r.label).put("channel", r.channel.label).put("tag", r.tag).put("sha256", actual),
+                )
+                refreshInstalled { it.copy(downloadingId = null, progress = 1f) }
             } catch (e: Exception) {
                 dir.deleteRecursively()
                 _state.update { it.copy(downloadingId = null, message = explain(e, "Download failed")) }
@@ -206,7 +238,7 @@ class EngineManager(ctx: Context) {
                 val input = app.contentResolver.openInputStream(uri) ?: throw IOException("couldn't open the file")
                 input.use { i -> part.outputStream().use { o -> i.copyTo(o, 32 * 1024) } }
                 install(part, dir, JSONObject().put("label", "Imported · $name").put("channel", "Imported"))
-                _state.update { it.copy(installed = scanInstalled(), importing = false) }
+                refreshInstalled { it.copy(importing = false) }
             } catch (e: Exception) {
                 dir.deleteRecursively()
                 _state.update { it.copy(importing = false, message = "Import failed: ${e.message ?: e.javaClass.simpleName}") }
@@ -216,7 +248,7 @@ class EngineManager(ctx: Context) {
 
     fun delete(id: String) {
         File(root, id).deleteRecursively()
-        _state.update { it.copy(installed = scanInstalled()) }
+        refreshInstalled { it }
     }
 
     /** Checks that [part] is an executable for this phone's CPU, then moves it into place as the engine binary. */
@@ -262,36 +294,26 @@ class EngineManager(ctx: Context) {
         }
     }
 
-    private fun fetch(ch: Channel): RemoteEngine? {
+    /** The engines on offer for [ch]: one for each of Pumpkin's channels, or the community repo's newest few releases. */
+    private fun fetchAll(ch: Channel): List<RemoteEngine> {
         val community = ch == Channel.Armv7
         val api = "https://api.github.com/repos/" + (if (community) COMMUNITY_ARMV7_REPO else "Pumpkin-MC/Pumpkin") + "/releases"
+        if (community) {
+            // The list, not /latest: /latest hides pre-releases, and new builds are often published as pre-releases.
+            val conn = open("$api?per_page=${EngineReleases.COMMUNITY_LIMIT * 2}", "application/vnd.github+json")
+            val arr = JSONArray(conn.inputStream.bufferedReader().use { it.readText() })
+            return EngineReleases.parseList(arr, ch, EngineReleases::isArmv7Engine)
+        }
         val url = if (ch.tag == null) "$api/latest" else "$api/tags/${ch.tag}"
         val conn = open(url, "application/vnd.github+json")
         val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-        val assets = json.getJSONArray("assets")
-        for (i in 0 until assets.length()) {
-            val a = assets.getJSONObject(i)
-            val name = a.getString("name")
-            if (if (community) name.lowercase().let { it.contains("armv7") && !it.endsWith(".txt") } else wantedAsset(name)) {
-                val tag = json.getString("tag_name")
-                val updated = a.optString("updated_at", json.optString("published_at"))
-                return RemoteEngine(
-                    channel = ch,
-                    tag = tag,
-                    label = when (ch) {
-                        Channel.Stable -> tag
-                        Channel.Armv7 -> "${ch.label} $tag"
-                        else -> "${ch.label} ${updated.take(10)}"
-                    },
-                    assetName = name,
-                    url = a.getString("browser_download_url"),
-                    size = a.optLong("size"),
-                    updated = updated,
-                    sha256 = a.optString("digest").removePrefix("sha256:").takeIf { it.length == 64 },
-                )
-            }
-        }
-        return null
+        return listOfNotNull(EngineReleases.parseRelease(json, ch, ::wantedAsset))
+    }
+
+    /** Re-reads what is installed and recomputes which builds are now out of date. */
+    private fun refreshInstalled(also: (EngineUiState) -> EngineUiState) {
+        val installed = scanInstalled()
+        _state.update { st -> also(st).copy(installed = installed, updates = EngineUpdates.compute(installed, st.remote)) }
     }
 
     private fun open(url: String, accept: String): HttpURLConnection {
@@ -318,12 +340,17 @@ class EngineManager(ctx: Context) {
                     channel = meta?.optString("channel").orEmpty(),
                     sizeBytes = bin.length(),
                     file = bin,
+                    tag = meta?.optString("tag")?.takeIf { it.isNotBlank() },
+                    sha256 = meta?.optString("sha256")?.takeIf { it.isNotBlank() },
                 )
             }
 }
 
 /** The official Pumpkin Android build is linked for API 24 and imports getifaddrs(), so it can't load on Android 5 or 6. */
 const val OFFICIAL_MIN_API = 24
+
+/** How often the automatic check may run: GitHub allows 60 anonymous requests an hour, and old phones have little to spare. */
+const val AUTO_CHECK_INTERVAL_MS = 6L * 60 * 60 * 1000
 
 /** Where the community 32-bit ARM build of Pumpkin (Android 5.0+) is released. */
 const val COMMUNITY_ARMV7_REPO = "colebolebole/pumpkin-android-armv7"

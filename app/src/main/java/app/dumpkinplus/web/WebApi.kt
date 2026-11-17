@@ -135,6 +135,8 @@ class WebApi(
         .put("downloadingId", e.downloadingId ?: JSONObject.NULL)
         .put("progress", e.progress.toDouble())
         .put("message", e.message ?: JSONObject.NULL)
+        .put("lastChecked", e.lastChecked)
+        .put("updates", e.updates.size)
         .put("installed", JSONArray().also { arr ->
             e.installed.forEach {
                 arr.put(
@@ -148,6 +150,8 @@ class WebApi(
                     JSONObject().put("id", it.id).put("channel", it.channel.label).put("tag", it.tag).put("label", it.label)
                         .put("sizeBytes", it.size).put("updated", it.updated).put("blurb", it.channel.blurb)
                         .put("installed", e.installed.any { i -> i.id == it.id })
+                        .put("update", e.updates.any { u -> u.id == it.id })
+                        .put("prerelease", it.prerelease)
                 )
             }
         })

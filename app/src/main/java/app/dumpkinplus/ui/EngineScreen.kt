@@ -42,8 +42,10 @@ class EngineScreen(act: MainActivity) : Screen(act) {
         titles.add(act.text("Pumpkin server builds", 14f, Pal.dim))
         head.add(titles, 0, WRAP, 1f)
         if (state.checking) head.addView(ProgressBar(act).apply { isIndeterminate = true }, LinearLayout.LayoutParams(act.dp(32), act.dp(32)))
-        else if (app.engines.hasRemote) head.add(act.button("Refresh", BtnKind.Tonal) { app.engines.checkRemote() }, WRAP, WRAP)
+        else if (app.engines.hasRemote) head.add(act.button("Check for updates", BtnKind.Tonal) { app.engines.checkRemote() }, WRAP, WRAP)
         list.add(head)
+        if (app.engines.hasRemote) list.add(checkStatus(state))
+        if (state.updates.isNotEmpty()) list.add(updateBanner(state, supported))
 
         if (!supported) {
             list.add(info("Unsupported CPU", "Pumpkin can't run on this phone's processor (${app.engines.arch.label}).", true))
@@ -138,10 +140,11 @@ class EngineScreen(act: MainActivity) : Screen(act) {
     private fun remoteCard(r: RemoteEngine, state: EngineUiState, enabled: Boolean): View {
         val c = act.card(16, 8)
         val installed = state.installed.any { it.id == r.id }
+        val isUpdate = state.updates.any { it.id == r.id }
         val downloading = state.downloadingId == r.id
         val busy = state.downloadingId != null || state.importing
-        c.add(act.text("${r.channel.label} · ${r.tag}", 15f, bold = true))
-        c.add(act.text(r.channel.blurb, 12.5f, Pal.dim))
+        c.add(act.text("${r.channel.label} · ${r.tag}" + if (isUpdate) "  ·  update" else "", 15f, if (isUpdate) Pal.primary else Pal.text, bold = true))
+        c.add(act.text((if (r.prerelease) "Pre-release. " else "") + r.channel.blurb, 12.5f, Pal.dim))
         val meta = listOfNotNull(r.updated.take(10).takeIf { it.isNotBlank() }, r.size.takeIf { it > 0 }?.let { formatBytes(it) })
         if (meta.isNotEmpty()) c.add(act.text(meta.joinToString(" · "), 12.5f, Pal.dim))
         if (downloading) {
@@ -150,12 +153,50 @@ class EngineScreen(act: MainActivity) : Screen(act) {
                 progress = (state.progress * 1000).toInt()
             }, MATCH, act.dp(10))
         } else {
-            val b = act.button(if (installed) "Download again" else "Download", if (installed) BtnKind.Outline else BtnKind.Primary) {
+            val b = act.button(
+                if (isUpdate) "Update" else if (installed) "Download again" else "Download",
+                if (installed && !isUpdate) BtnKind.Outline else BtnKind.Primary,
+            ) {
                 app.engines.download(r)
             }
             b.enable(enabled && !busy)
             c.add(b, WRAP, WRAP, 0f)
         }
         return c
+    }
+
+    /** "Last checked 3 h ago" plus the switch for checking by itself. */
+    private fun checkStatus(state: EngineUiState): View {
+        val box = act.vbox(6)
+        box.add(act.hint(if (state.lastChecked == 0L) "Not checked yet." else "Last checked " + ago(System.currentTimeMillis() - state.lastChecked) + "."))
+        box.add(act.switchRow("Check for updates automatically", "When the app starts, at most every 6 hours.", app.engines.autoCheck) { app.engines.autoCheck = it })
+        return box
+    }
+
+    /** Names what is newer than what is installed, with a one-tap update for it. */
+    private fun updateBanner(state: EngineUiState, enabled: Boolean): View {
+        val c = act.card(16, 6, if (Pal.dark) 0xFF4A2D12.toInt() else 0xFFFFE3C2.toInt())
+        c.add(act.text(if (state.updates.size == 1) "Update available" else "Updates available", 17f, bold = true))
+        val busy = state.downloadingId != null || state.importing
+        for (r in state.updates) {
+            val have = state.installed.firstOrNull { it.channel == r.channel.label }?.tag
+            val what = r.label + if (have != null && have != r.tag) "  (you have $have)" else if (have == r.tag) "  (rebuilt: new file, same version)" else ""
+            c.add(act.text(what, 14f))
+            if (r.prerelease) c.add(act.hint("This is a pre-release."))
+            val b = act.button(if (state.downloadingId == r.id) "Downloading…" else "Update", BtnKind.Primary) { app.engines.download(r) }
+            b.enable(enabled && !busy)
+            c.add(b, WRAP, WRAP)
+        }
+        return c
+    }
+
+    private fun ago(ms: Long): String {
+        val m = ms / 60_000
+        return when {
+            m < 1 -> "just now"
+            m < 60 -> "$m min ago"
+            m < 48 * 60 -> "${m / 60} h ago"
+            else -> "${m / (24 * 60)} days ago"
+        }
     }
 }

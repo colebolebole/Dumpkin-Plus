@@ -892,7 +892,7 @@
       if (bar) bar.firstChild.style.width = Math.round(e.progress * 100) + '%';
       rows.push(h('div', { class: 'item', style: undefined },
         h('div', { class: 'grow' },
-          h('div', { class: 't' }, a.channel + ' · ' + a.tag),
+          h('div', { class: 't' }, a.channel + ' · ' + a.tag + (a.update ? ' · update available' : '') + (a.prerelease ? ' · pre-release' : '')),
           h('div', { class: 'd' }, [fmtBytes(a.sizeBytes), (a.updated || '').slice(0, 10), a.blurb].filter(Boolean).join(' · ')), bar),
         a.installed ? h('span', { class: 'chip' }, icon('check', 'sm'), 'Installed')
           : h('button', { class: 'btn small', disabled: !!e.downloadingId || !e.supported, onclick: async () => {

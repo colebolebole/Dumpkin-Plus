@@ -59,6 +59,8 @@ class DumpkinApp : Application() {
         }
         // If the dashboard was left on, bring it back up with the app.
         web.startIfEnabled()
+        // Look for new engine builds in the background (at most every few hours; can be switched off on the Engine tab).
+        engines.autoCheckIfDue()
     }
 
     companion object {
