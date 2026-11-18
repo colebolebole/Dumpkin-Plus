@@ -18,8 +18,8 @@ android {
         // targeting API 29+. The Pumpkin engine is downloaded at runtime and executed from there
         // (same approach Termux uses), so this app is meant to be sideloaded, not published on Play.
         targetSdk = 28
-        versionCode = 3
-        versionName = "0.1.2-alpha"
+        versionCode = 4
+        versionName = "0.1.3-alpha"
         // English only: keeps the APK and its resource tables small.
         androidResources.localeFilters += "en"
     }
