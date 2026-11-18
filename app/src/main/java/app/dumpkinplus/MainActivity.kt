@@ -129,6 +129,38 @@ class MainActivity : Activity() {
         if (started) next.start()
     }
 
+    private var pickCallback: ((Uri) -> Unit)? = null
+    private var createCallback: ((Uri) -> Unit)? = null
+
+    /** Lets the user choose any file; [onPicked] gets its content URI (readable until the app is closed). */
+    fun pickDocument(onPicked: (Uri) -> Unit) {
+        pickCallback = onPicked
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        try {
+            startActivityForResult(intent, REQ_PICK)
+        } catch (_: Exception) {
+            toast("No file manager found on this phone.")
+        }
+    }
+
+    /** Lets the user choose where to save a new file called [name]; [onCreated] gets the URI to write to. */
+    fun createDocument(name: String, mime: String, onCreated: (Uri) -> Unit) {
+        createCallback = onCreated
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mime
+            putExtra(Intent.EXTRA_TITLE, name)
+        }
+        try {
+            startActivityForResult(intent, REQ_CREATE)
+        } catch (_: Exception) {
+            toast("No file manager found on this phone.")
+        }
+    }
+
     /** Opens the system file chooser so an engine downloaded elsewhere can be imported. */
     fun pickEngineFile() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -145,6 +177,14 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_PICK || requestCode == REQ_CREATE) {
+            val uri = data?.data
+            val cb = if (requestCode == REQ_PICK) pickCallback else createCallback
+            pickCallback = null
+            createCallback = null
+            if (resultCode == RESULT_OK && uri != null) cb?.invoke(uri)
+            return
+        }
         if (requestCode == REQ_IMPORT && resultCode == RESULT_OK) {
             val uri: Uri? = data?.data
             if (uri != null) {
@@ -165,6 +205,12 @@ class MainActivity : Activity() {
         s.launch {
             dumpkin.engines.state.collect { st ->
                 tabViews.getOrNull(1)?.text = if (st.updates.isNotEmpty()) "Engine •" else "Engine"
+            }
+        }
+        // ...and on Tuning when a newer Dumpkin+ is out.
+        s.launch {
+            dumpkin.updater.state.collect { st ->
+                tabViews.getOrNull(2)?.text = if (st.available != null) "Tuning •" else "Tuning"
             }
         }
         s.launch {
@@ -207,6 +253,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQ_IMPORT = 7
+        private const val REQ_PICK = 8
+        private const val REQ_CREATE = 9
         private const val STATE_TAB = "tab"
         private const val STATE_OPEN = "open"
     }

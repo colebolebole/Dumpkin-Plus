@@ -27,6 +27,9 @@
     logout: 'M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z',
     send: 'M2.01 21L23 12 2.01 3 2 10l15 2-15 2z',
     check: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
+    folder: 'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z',
+    file: 'M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z',
+    download: 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z',
     eye: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z',
     eyeOff: 'M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z',
   };
@@ -494,7 +497,8 @@
     const hero = h('div', { class: 'card hero' });
     const panel = h('div');
     const tabs = seg([
-      { value: 'console', label: 'Console' }, { value: 'settings', label: 'Settings' }, { value: 'config', label: 'Config file' },
+      { value: 'console', label: 'Console' }, { value: 'settings', label: 'Settings' }, { value: 'files', label: 'Files' },
+      { value: 'backups', label: 'Backups' }, { value: 'config', label: 'Config file' },
     ], tab, (v) => go('#/server/' + encodeURIComponent(id) + '/' + v), 'tabs');
     const el = h('div', {},
       h('a', { class: 'back', href: '#/' }, icon('back'), 'All servers'),
@@ -557,7 +561,8 @@
       if (panelCtl) panelCtl.destroy();
       panel.replaceChildren();
       const s = serverById(id);
-      panelCtl = tab === 'settings' ? settingsPanel(s) : tab === 'config' ? configPanel(s) : consolePanel(s);
+      panelCtl = tab === 'settings' ? settingsPanel(s) : tab === 'config' ? configPanel(s)
+        : tab === 'files' ? filesPanel(s) : tab === 'backups' ? backupsPanel(s) : consolePanel(s);
       panel.append(panelCtl.el);
     }
     mountPanel();
@@ -811,6 +816,195 @@
   }
 
   // ---- config file
+  // ---- backups
+  function backupsPanel(server) {
+    const id = server.id;
+    const base = '/api/servers/' + encodeURIComponent(id) + '/backups';
+    let data = null;
+    let timer = null;
+    let dead = false;
+    let running = isActive(server);
+    const statusLine = h('div', { class: 'backup-status', role: 'status', hidden: true });
+    const list = h('div', { class: 'list' });
+    const nowBtn = h('button', { class: 'btn', type: 'button', onclick: backupNow }, icon('add', 'sm'), 'Back up now');
+    const autoRow = h('div');
+    const el = h('div', {},
+      h('div', { class: 'card' }, h('h2', {}, 'Backups'),
+        h('p', { class: 'hint' }, 'Zip copies of this server’s whole folder (world and settings), kept on the phone. Stop the server first for a clean copy. Download one to keep it safe on your computer.'),
+        h('div', { class: 'actions-row' }, nowBtn), statusLine, autoRow),
+      h('div', { class: 'card' }, h('h2', {}, 'Saved backups'), list));
+
+    function renderAuto() {
+      autoRow.replaceChildren(switchRow('Back up automatically when the server stops',
+        'Keeps the newest ' + (data ? data.autoKeep : 5) + ' automatic backups. Manual backups are never deleted for you.',
+        !!(data && data.autoBackup), async (on) => {
+          try { await api('PATCH', '/api/servers/' + encodeURIComponent(id), { autoBackup: on }); refreshNow(); load(); } catch (e) { toast(e.message, 'error'); load(); }
+        }));
+    }
+
+    function render() {
+      if (!data) return;
+      running = data.running;
+      const busy = !!data.busy;
+      nowBtn.disabled = busy;
+      statusLine.hidden = !(busy || data.message);
+      statusLine.className = 'backup-status' + (!busy && data.error ? ' error' : '');
+      statusLine.replaceChildren(...(busy ? [icon('refresh', 'sm spin'), ' ', data.busy] : [data.message || '']));
+      if (!data.backups.length) {
+        list.replaceChildren(h('p', { class: 'hint' }, 'No backups yet.'));
+        return;
+      }
+      list.replaceChildren(...data.backups.map((b) => h('div', { class: 'item' },
+        h('div', { class: 'grow' },
+          h('div', { class: 't' }, new Date(b.createdAt).toLocaleString() + ' · ' + b.label),
+          h('div', { class: 'd' }, fmtBytes(b.size) + ' · ' + b.name)),
+        h('a', { class: 'btn small outline', href: base + '/' + encodeURIComponent(b.name) + '/download', download: '' }, icon('download', 'sm'), 'Download'),
+        h('button', { class: 'btn small tonal', type: 'button', disabled: busy || running, title: running ? 'Stop the server first' : '', onclick: () => restore(b) }, 'Restore'),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Delete backup', disabled: busy, onclick: () => remove(b) }, icon('trash', 'sm')))));
+    }
+
+    async function load() {
+      if (dead) return;
+      try {
+        data = await api('GET', base);
+        render();
+        if (autoRow.dataset.auto !== String(data.autoBackup)) { renderAuto(); autoRow.dataset.auto = String(data.autoBackup); }
+      } catch (e) {
+        if (e.status === 401) return;
+      }
+      clearTimeout(timer);
+      if (!dead) timer = setTimeout(load, data && data.busy ? 1200 : 6000);
+    }
+
+    async function backupNow() {
+      let force = false;
+      if (running) {
+        const ok = await confirmDialog({ title: 'Back up a running server?', body: 'The world may be written to while it is copied, so the backup could be slightly inconsistent. Stopping the server first is safer.', confirm: 'Back up anyway' });
+        if (!ok) return;
+        force = true;
+      }
+      try { await api('POST', base, { force }); load(); } catch (e) { toast(e.message, 'error'); }
+    }
+    async function restore(b) {
+      const ok = await confirmDialog({ title: 'Restore this backup?', body: 'The server’s files are replaced with this backup (' + new Date(b.createdAt).toLocaleString() + '). A safety backup of the current files is made first.', confirm: 'Restore', danger: true });
+      if (!ok) return;
+      try { await api('POST', base + '/' + encodeURIComponent(b.name) + '/restore', {}); load(); } catch (e) { toast(e.message, 'error'); }
+    }
+    async function remove(b) {
+      const ok = await confirmDialog({ title: 'Delete this backup?', body: b.name + ' will be deleted from the phone. This can’t be undone.', confirm: 'Delete', danger: true });
+      if (!ok) return;
+      try { await api('DELETE', base + '/' + encodeURIComponent(b.name)); load(); } catch (e) { toast(e.message, 'error'); }
+    }
+
+    load();
+    return {
+      el,
+      update(s) { if (isActive(s) !== running) { running = isActive(s); if (data) { data.running = running; render(); } } },
+      destroy() { dead = true; clearTimeout(timer); },
+    };
+  }
+
+  // ---- files
+  function filesPanel(server) {
+    const id = server.id;
+    const base = '/api/servers/' + encodeURIComponent(id) + '/files';
+    let path = '';
+    let running = isActive(server);
+    let data = null;
+    const crumbs = h('div', { class: 'crumbs' });
+    const list = h('div', { class: 'list' });
+    const el = h('div', { class: 'card' }, h('h2', {}, 'Files'),
+      h('p', { class: 'hint' }, 'Everything in this server’s folder. Open text files to edit them, download anything, and delete files while the server is stopped.'),
+      h('div', { class: 'actions-row' },
+        h('button', { class: 'btn small outline', type: 'button', onclick: () => load() }, icon('refresh', 'sm'), 'Refresh'),
+        h('button', { class: 'btn small outline', type: 'button', onclick: newFolder }, icon('folder', 'sm'), 'New folder')),
+      crumbs, list);
+
+    function renderCrumbs() {
+      const parts = path ? path.split('/') : [];
+      const items = [h('button', { class: 'crumb', type: 'button', onclick: () => open('') }, 'server')];
+      parts.forEach((p, i) => {
+        items.push(h('span', { class: 'sep' }, '/'));
+        items.push(h('button', { class: 'crumb', type: 'button', onclick: () => open(parts.slice(0, i + 1).join('/')) }, p));
+      });
+      crumbs.replaceChildren(...items);
+    }
+
+    function open(p) { path = p; load(); }
+
+    function render() {
+      renderCrumbs();
+      if (!data) return;
+      running = data.running;
+      if (!data.entries.length) { list.replaceChildren(h('p', { class: 'hint' }, 'This folder is empty.')); return; }
+      list.replaceChildren(...data.entries.map((e) => {
+        const name = e.dir
+          ? h('button', { class: 'linkish', type: 'button', onclick: () => open(e.path) }, icon('folder', 'sm'), e.name)
+          : e.text
+            ? h('button', { class: 'linkish', type: 'button', onclick: () => edit(e) }, icon('file', 'sm'), e.name)
+            : h('span', { class: 'plain' }, icon('file', 'sm'), e.name);
+        return h('div', { class: 'item' },
+          h('div', { class: 'grow' }, h('div', { class: 't' }, name),
+            h('div', { class: 'd' }, [e.dir ? 'Folder' : fmtBytes(e.size), e.modified ? new Date(e.modified).toLocaleString() : ''].filter(Boolean).join(' · '))),
+          e.dir ? null : h('a', { class: 'icon-btn', href: base + '/download?path=' + encodeURIComponent(e.path), download: '', 'aria-label': 'Download ' + e.name, title: 'Download' }, icon('download', 'sm')),
+          h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Delete ' + e.name, disabled: running, title: running ? 'Stop the server first' : 'Delete', onclick: () => remove(e) }, icon('trash', 'sm')));
+      }));
+    }
+
+    async function load() {
+      try {
+        data = await api('GET', base + '?path=' + encodeURIComponent(path));
+        path = data.path;
+        render();
+      } catch (e) {
+        if (path) { path = ''; load(); } else toast(e.message, 'error');
+      }
+    }
+
+    async function remove(e) {
+      const ok = await confirmDialog({ title: 'Delete ' + e.name + '?', body: (e.dir ? 'The folder and everything in it' : 'The file') + ' will be deleted from the phone. This can’t be undone.', confirm: 'Delete', danger: true });
+      if (!ok) return;
+      try { await api('DELETE', base + '?path=' + encodeURIComponent(e.path)); load(); } catch (err) { toast(err.message, 'error'); }
+    }
+
+    function newFolder() {
+      const input = h('input', { class: 'input', type: 'text', maxlength: '100', 'aria-label': 'Folder name', placeholder: 'Folder name' });
+      const dlg = dialog((close) => h('div', { class: 'dlg' }, h('h2', {}, 'New folder'), input,
+        h('div', { class: 'actions' },
+          h('button', { class: 'btn outline', type: 'button', onclick: () => close(false) }, 'Cancel'),
+          h('button', { class: 'btn', type: 'button', onclick: async () => {
+            try { await api('POST', base + '/folder', { path, name: input.value.trim() }); close(true); load(); } catch (e) { toast(e.message, 'error'); }
+          } }, 'Create'))));
+      input.focus();
+      return dlg;
+    }
+
+    async function edit(e) {
+      let text;
+      try { text = (await api('GET', base + '/content?path=' + encodeURIComponent(e.path))).text; } catch (err) { toast(err.message, 'error'); return; }
+      const area = h('textarea', { class: 'input', spellcheck: 'false', 'aria-label': e.name });
+      area.value = text;
+      dialog((close) => h('div', { class: 'dlg wide' }, h('h2', {}, e.name),
+        running ? h('p', { class: 'hint' }, 'The server is running. Most changes apply after a restart.') : null, area,
+        h('div', { class: 'actions' },
+          h('button', { class: 'btn outline', type: 'button', onclick: () => close(false) }, 'Close'),
+          h('button', { class: 'btn', type: 'button', onclick: async () => {
+            try {
+              const r = await api('PUT', base + '/content', { path: e.path, text: area.value });
+              toast(r.restartRequired ? 'Saved. Restart the server to apply.' : 'Saved');
+              close(true); load();
+            } catch (err) { toast(err.message, 'error'); }
+          } }, 'Save'))));
+    }
+
+    load();
+    return {
+      el,
+      update(s) { if (isActive(s) !== running) { running = isActive(s); if (data) { data.running = running; render(); } } },
+      destroy() {},
+    };
+  }
+
   function configPanel(server) {
     const id = server.id;
     const area = h('textarea', { class: 'input', spellcheck: 'false', 'aria-label': 'pumpkin.toml', placeholder: 'The file is created the first time the server starts.', disabled: true });

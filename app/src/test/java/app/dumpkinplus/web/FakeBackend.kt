@@ -1,5 +1,8 @@
 package app.dumpkinplus.web
 
+import app.dumpkinplus.backup.Backup
+import app.dumpkinplus.backup.BackupManager
+import app.dumpkinplus.backup.BackupStatus
 import app.dumpkinplus.data.RuntimeState
 import app.dumpkinplus.data.ServerProfile
 import app.dumpkinplus.data.Status
@@ -7,6 +10,7 @@ import app.dumpkinplus.engine.Channel
 import app.dumpkinplus.engine.EngineUiState
 import app.dumpkinplus.engine.InstalledEngine
 import app.dumpkinplus.engine.RemoteEngine
+import app.dumpkinplus.files.ServerFiles
 import app.dumpkinplus.server.LogBuffer
 import app.dumpkinplus.server.LogSlice
 import java.io.File
@@ -134,6 +138,28 @@ class FakeBackend(private val instant: Boolean = true) : WebBackend {
         engineState = engineState.copy(installed = engineState.installed.filterNot { it.id == id })
         return true
     }
+
+    // ---- files and backups, on a real temporary folder so the real file and zip code runs ----
+    val dataDir: File = java.nio.file.Files.createTempDirectory("dumpkin-fake").toFile().apply { deleteOnExit() }
+    private val backupManager = BackupManager(File(dataDir, "backups"))
+    fun serverDir(id: String): File = File(dataDir, "servers/$id").apply { mkdirs() }
+    private fun active(id: String) = states[id]?.isActive == true
+
+    override fun files(id: String): ServerFiles? = if (servers.any { it.id == id }) ServerFiles(serverDir(id)) else null
+    override fun backups(id: String): List<Backup> = backupManager.list(id)
+    override fun backupStatus(id: String): BackupStatus = backupManager.statusOf(id)
+    override fun backupFile(id: String, name: String): File? = backupManager.file(id, name)
+    override fun backupNow(id: String, allowRunning: Boolean): String? {
+        if (active(id) && !allowRunning) return "Stop the server first, so the world is backed up in one piece."
+        val dir = serverDir(id)
+        return if (backupManager.start(id, "Backing up…") { backupManager.create(id, dir); "Backup saved." }) null else "Busy."
+    }
+    override fun restoreBackup(id: String, name: String): String? {
+        if (active(id)) return "Stop the server before restoring a backup."
+        val dir = serverDir(id)
+        return if (backupManager.start(id, "Restoring…") { backupManager.restore(id, dir, name); "Backup restored." }) null else "Busy."
+    }
+    override fun deleteBackup(id: String, name: String): Boolean = backupManager.delete(id, name)
 
     /** Adds a server in a given state, for previews. */
     fun seed(profile: ServerProfile, state: RuntimeState, lines: List<String> = emptyList()) {

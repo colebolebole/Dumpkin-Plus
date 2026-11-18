@@ -29,6 +29,7 @@ class HomeScreen(act: MainActivity) : Screen(act) {
     private lateinit var subtitle: android.widget.TextView
     private lateinit var list: LinearLayout
     private var cardScope: CoroutineScope? = null
+    private lateinit var updateSlot: LinearLayout
 
     override fun build(): View {
         val page = act.vbox(12).apply { setPadding(act.dp(16), act.dp(20), act.dp(16), act.dp(24)) }
@@ -37,6 +38,8 @@ class HomeScreen(act: MainActivity) : Screen(act) {
         subtitle = act.text("Host Pumpkin servers from your phone", 14f, Pal.dim)
         head.add(subtitle)
         page.add(head)
+        updateSlot = act.vbox()
+        page.add(updateSlot)
         list = act.vbox(12)
         page.add(list)
         page.add(act.button("New server") { showCreate() })
@@ -44,6 +47,12 @@ class HomeScreen(act: MainActivity) : Screen(act) {
     }
 
     override fun onStart() {
+        scope.launch {
+            app.updater.state.collect { st ->
+                updateSlot.removeAllViews()
+                act.updateBanner(st)?.let { updateSlot.add(it) }
+            }
+        }
         scope.launch {
             combine(app.manager.profiles, app.engines.state, app.manager.active) { p, e, a -> Triple(p, e, a) }
                 .collect { (profiles, engine, active) ->

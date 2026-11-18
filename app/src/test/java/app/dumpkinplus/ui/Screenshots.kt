@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import app.dumpkinplus.DumpkinApp
 import app.dumpkinplus.MainActivity
+import app.dumpkinplus.backup.BackupKind
 import app.dumpkinplus.data.RuntimeState
 import app.dumpkinplus.data.ServerProfile
 import app.dumpkinplus.data.Status
@@ -74,6 +75,18 @@ class Screenshots {
                 ?: (v as? ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { find(g.getChildAt(it), text) } }
         find(a.findViewById(android.R.id.content), "Settings")!!.performClick()
         shoot(a, "settings")
+        // A small world and one backup, for the Backups and Files tabs.
+        val dir = app.manager.dir("a")
+        File(dir, "world/region").mkdirs()
+        File(dir, "world/region/r.0.0.mca").writeBytes(ByteArray(1_800_000))
+        File(dir, "world/level.dat").writeBytes(ByteArray(2200))
+        File(dir, "whitelist.json").writeText("[]\n")
+        app.manager.backups.create("a", dir)
+        app.manager.backups.create("a", dir, BackupKind.Auto)
+        find(a.findViewById(android.R.id.content), "Backups")!!.performClick()
+        shoot(a, "backups")
+        find(a.findViewById(android.R.id.content), "Files")!!.performClick()
+        shoot(a, "files")
         a.setTab(1); shoot(a, "engine")
         a.setTab(2); shoot(a, "tuning")
         a.setTab(3); shoot(a, "dashboard")

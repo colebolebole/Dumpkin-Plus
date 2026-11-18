@@ -1,11 +1,15 @@
 package app.dumpkinplus.web
 
 import android.app.Application
+import app.dumpkinplus.backup.Backup
+import app.dumpkinplus.backup.BackupStatus
 import app.dumpkinplus.data.RuntimeState
 import app.dumpkinplus.data.ServerProfile
 import app.dumpkinplus.data.deviceMemory
 import app.dumpkinplus.engine.EngineManager
 import app.dumpkinplus.engine.EngineUiState
+import app.dumpkinplus.files.ServerFiles
+import java.io.File
 import app.dumpkinplus.server.LogSlice
 import app.dumpkinplus.server.ServerManager
 
@@ -66,4 +70,12 @@ class AppBackend(
         engines.delete(id)
         return true
     }
+
+    override fun files(id: String): ServerFiles? = manager.files(id)
+    override fun backups(id: String): List<Backup> = manager.backups.list(id)
+    override fun backupStatus(id: String): BackupStatus = manager.backups.statusOf(id)
+    override fun backupFile(id: String, name: String): File? = manager.backups.file(id, name)
+    override fun backupNow(id: String, allowRunning: Boolean): String? = manager.backupNow(id, allowRunning = allowRunning)
+    override fun restoreBackup(id: String, name: String): String? = manager.restoreBackup(id, name)
+    override fun deleteBackup(id: String, name: String): Boolean = manager.backups.delete(id, name)
 }

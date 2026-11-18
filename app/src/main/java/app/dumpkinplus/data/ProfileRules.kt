@@ -94,6 +94,7 @@ object ProfilePatch {
             lightPing = bool("lightPing", base.lightPing),
             compression = enum("compression", base.compression, Compression.entries),
             fetchSkins = bool("fetchSkins", base.fetchSkins),
+            autoBackup = bool("autoBackup", base.autoBackup),
             engineId = when {
                 !o.has("engineId") -> base.engineId
                 o.isNull("engineId") -> null

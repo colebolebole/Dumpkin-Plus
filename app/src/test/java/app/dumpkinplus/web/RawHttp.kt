@@ -5,7 +5,7 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.Socket
 
-class Resp(val status: Int, val headers: Map<String, String>, val body: String) {
+class Resp(val status: Int, val headers: Map<String, String>, val body: String, val bytes: ByteArray = ByteArray(0)) {
     val json: JSONObject get() = JSONObject(body)
     val array: JSONArray get() = JSONArray(body)
     fun header(name: String): String? = headers[name.lowercase()]
@@ -52,6 +52,9 @@ object RawHttp {
         val head = text.substring(0, split).split("\r\n")
         val status = head[0].split(' ')[1].toInt()
         val headers = head.drop(1).associate { it.substringBefore(':').trim().lowercase() to it.substringAfter(':').trim() }
-        return Resp(status, headers, text.substring(split + 4))
+        // Binary bodies (downloads) are read from the raw bytes, since decoding them as text would corrupt them.
+        var cut = 0
+        while (cut + 3 < raw.size && !(raw[cut] == 13.toByte() && raw[cut + 1] == 10.toByte() && raw[cut + 2] == 13.toByte() && raw[cut + 3] == 10.toByte())) cut++
+        return Resp(status, headers, text.substring(split + 4), raw.copyOfRange(minOf(cut + 4, raw.size), raw.size))
     }
 }

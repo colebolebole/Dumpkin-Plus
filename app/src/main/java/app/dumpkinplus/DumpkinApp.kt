@@ -7,6 +7,7 @@ import android.content.Context
 import android.os.Build
 import app.dumpkinplus.engine.EngineManager
 import app.dumpkinplus.server.ServerManager
+import app.dumpkinplus.update.AppUpdater
 import app.dumpkinplus.web.AppBackend
 import app.dumpkinplus.web.WebController
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,8 @@ class DumpkinApp : Application() {
     lateinit var manager: ServerManager
         private set
     lateinit var web: WebController
+        private set
+    lateinit var updater: AppUpdater
         private set
 
     private val prefs by lazy { getSharedPreferences("dumpkin", Context.MODE_PRIVATE) }
@@ -42,6 +45,7 @@ class DumpkinApp : Application() {
         super.onCreate()
         engines = EngineManager(this)
         manager = ServerManager(this, engines)
+        updater = AppUpdater(this)
         web = WebController(
             app = this,
             backend = AppBackend(this, manager, engines),
@@ -60,7 +64,11 @@ class DumpkinApp : Application() {
         // If the dashboard was left on, bring it back up with the app.
         web.startIfEnabled()
         // Look for new engine builds in the background (at most every few hours; can be switched off on the Engine tab).
-        engines.autoCheckIfDue()
+        // Not under Robolectric: unit tests must not reach the network.
+        if (Build.FINGERPRINT != "robolectric") {
+            engines.autoCheckIfDue()
+            updater.autoCheckIfDue()
+        }
     }
 
     companion object {

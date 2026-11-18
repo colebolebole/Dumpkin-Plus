@@ -1,11 +1,14 @@
 package app.dumpkinplus.web
 
+import app.dumpkinplus.backup.BackupManager
 import app.dumpkinplus.data.DEFAULT_BEDROCK_PORT
 import app.dumpkinplus.data.ProfilePatch
 import app.dumpkinplus.data.ProfileRules
 import app.dumpkinplus.data.RuntimeState
 import app.dumpkinplus.data.ServerProfile
 import app.dumpkinplus.engine.EngineUiState
+import app.dumpkinplus.files.FileAccessException
+import app.dumpkinplus.files.ServerFiles
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -34,6 +37,8 @@ class WebApi(
             HttpResponse.error(e.status, e.message ?: "Error")
         } catch (e: ProfilePatch.Invalid) {
             HttpResponse.error(400, e.message ?: "Invalid value.")
+        } catch (e: FileAccessException) {
+            HttpResponse.error(400, e.message ?: "Not allowed.")
         }
     }
 
@@ -184,7 +189,10 @@ class WebApi(
         val id = segs[0]
         val profile = backend.profiles().firstOrNull { it.id == id } ?: throw ApiError(404, "No such server.")
         val sub = segs.getOrNull(1)
-        if (segs.size > 3 || (segs.size == 3 && !(sub == "config" && segs[2] == "reset"))) throw ApiError(404, "Not found.")
+        val deep = sub == "backups" || sub == "files"
+        if (segs.size > (if (deep) 4 else 3) || (!deep && segs.size == 3 && !(sub == "config" && segs[2] == "reset"))) {
+            throw ApiError(404, "Not found.")
+        }
 
         return when (sub) {
             null -> when (req.method) {
@@ -227,6 +235,8 @@ class WebApi(
                 )
             }
             "config" -> config(req, segs, profile)
+            "backups" -> backups(req, segs.drop(2), profile)
+            "files" -> files(req, segs.drop(2), profile)
             else -> throw ApiError(404, "Not found.")
         }
     }
@@ -287,6 +297,122 @@ class WebApi(
         }
     }
 
+    // ---- backups ---------------------------------------------------------------------------------------------------
+
+    private fun backups(req: HttpRequest, rest: List<String>, profile: ServerProfile): HttpResponse {
+        val id = profile.id
+        val active = backend.runtime(id)?.isActive == true
+        when {
+            rest.isEmpty() -> when (req.method) {
+                "GET" -> return HttpResponse.json(200, backupsJson(profile, active))
+                "POST" -> {
+                    val force = jsonBody(req).optBoolean("force", false)
+                    backend.backupNow(id, force)?.let { throw ApiError(409, it) }
+                    return HttpResponse.json(202, JSONObject().put("ok", true))
+                }
+                else -> throw ApiError(405, "Method not allowed.")
+            }
+            rest.size == 1 -> {
+                requireMethod(req, "DELETE")
+                if (backend.backupStatus(id).busy != null) throw ApiError(409, "Wait for the current backup job to finish.")
+                if (!backend.deleteBackup(id, rest[0])) throw ApiError(404, "No such backup.")
+                return HttpResponse.json(200, JSONObject().put("ok", true))
+            }
+            rest[1] == "restore" && rest.size == 2 -> {
+                requireMethod(req, "POST")
+                if (backend.backupFile(id, rest[0]) == null) throw ApiError(404, "No such backup.")
+                backend.restoreBackup(id, rest[0])?.let { throw ApiError(409, it) }
+                return HttpResponse.json(202, JSONObject().put("ok", true))
+            }
+            rest[1] == "download" && rest.size == 2 -> {
+                requireMethod(req, "GET", "HEAD")
+                val file = backend.backupFile(id, rest[0]) ?: throw ApiError(404, "No such backup.")
+                return HttpResponse.download(file, "${profile.name.ifBlank { "server" }}-${rest[0]}", "application/zip")
+            }
+            else -> throw ApiError(404, "Not found.")
+        }
+    }
+
+    private fun backupsJson(profile: ServerProfile, active: Boolean): JSONObject {
+        val st = backend.backupStatus(profile.id)
+        return JSONObject()
+            .put("autoBackup", profile.autoBackup)
+            .put("autoKeep", BackupManager.AUTO_KEEP)
+            .put("running", active)
+            .put("busy", st.busy ?: JSONObject.NULL)
+            .put("message", st.message ?: JSONObject.NULL)
+            .put("error", st.error)
+            .put("backups", JSONArray().also { arr ->
+                backend.backups(profile.id).forEach {
+                    arr.put(
+                        JSONObject().put("name", it.name).put("size", it.sizeBytes).put("createdAt", it.createdAt)
+                            .put("kind", it.kind.name.lowercase()).put("label", it.kind.label)
+                    )
+                }
+            })
+    }
+
+    // ---- files -----------------------------------------------------------------------------------------------------
+
+    private fun files(req: HttpRequest, rest: List<String>, profile: ServerProfile): HttpResponse {
+        val files: ServerFiles = backend.files(profile.id) ?: throw ApiError(404, "No such server.")
+        val active = backend.runtime(profile.id)?.isActive == true
+        val path = req.query["path"].orEmpty()
+        when {
+            rest.isEmpty() -> when (req.method) {
+                "GET" -> {
+                    val dir = files.resolve(path)
+                    val entries = files.list(path)
+                    return HttpResponse.json(
+                        200,
+                        JSONObject().put("path", files.relative(dir)).put("running", active)
+                            .put("entries", JSONArray().also { arr ->
+                                entries.forEach { e ->
+                                    val o = JSONObject().put("name", e.name).put("path", e.path).put("dir", e.isDir)
+                                        .put("size", e.size).put("modified", e.modified)
+                                    // Only small files are sniffed, so listing a big folder stays cheap.
+                                    if (!e.isDir) o.put("text", e.size <= EDITABLE_BYTES && files.isText(files.resolve(e.path)))
+                                    arr.put(o)
+                                }
+                            })
+                    )
+                }
+                "DELETE" -> {
+                    if (active) throw ApiError(409, "Stop the server before deleting its files.")
+                    if (backend.backupStatus(profile.id).busy != null) throw ApiError(409, "Wait for the current backup job to finish.")
+                    files.delete(path)
+                    return HttpResponse.json(200, JSONObject().put("ok", true))
+                }
+                else -> throw ApiError(405, "Method not allowed.")
+            }
+            rest == listOf("content") -> return when (req.method) {
+                "GET" -> HttpResponse.json(200, JSONObject().put("path", path).put("text", files.readText(path)))
+                "PUT" -> {
+                    val body = jsonBody(req)
+                    val p = body.optString("path", "")
+                    val text = body.optString("text", null) ?: throw ApiError(400, "Send the file as {\"path\": ..., \"text\": ...}.")
+                    if (text.length > EDITABLE_BYTES.toInt()) throw ApiError(400, "That file is too large to save from the browser.")
+                    files.writeText(p, text)
+                    HttpResponse.json(200, JSONObject().put("ok", true).put("restartRequired", active))
+                }
+                else -> throw ApiError(405, "Method not allowed.")
+            }
+            rest == listOf("download") -> {
+                requireMethod(req, "GET", "HEAD")
+                val f = files.resolve(path)
+                if (!f.isFile) throw ApiError(400, "That isn't a file.")
+                return HttpResponse.download(f, f.name)
+            }
+            rest == listOf("folder") -> {
+                requireMethod(req, "POST")
+                val body = jsonBody(req)
+                files.mkdir(body.optString("path", ""), body.optString("name", ""))
+                return HttpResponse.json(201, JSONObject().put("ok", true))
+            }
+            else -> throw ApiError(404, "Not found.")
+        }
+    }
+
     // ---- engine ----------------------------------------------------------------------------------------------------
 
     private fun engine(req: HttpRequest, segs: List<String>): HttpResponse {
@@ -333,6 +459,9 @@ class WebApi(
     companion object {
         const val COOKIE = "dk_session"
         const val MAX_SERVERS = 20
+
+        /** Biggest text file the dashboard will open or save (its requests are limited to 64 KB). */
+        const val EDITABLE_BYTES = 60_000L
 
         private val STATIC = mapOf(
             "index.html" to "text/html; charset=utf-8",

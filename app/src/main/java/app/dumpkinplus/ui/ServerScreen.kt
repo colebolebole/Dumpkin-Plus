@@ -49,6 +49,10 @@ class ServerScreen(act: MainActivity, private val id: String) : Screen(act) {
     private lateinit var consoleSlot: FrameLayout
     private lateinit var settingsColumn: LinearLayout
     private lateinit var settingsSlot: LinearLayout
+    private lateinit var paneHolder: FrameLayout
+    private lateinit var settingsPane: LinearLayout
+    private lateinit var backupsPane: BackupsPane
+    private lateinit var filesPane: FilesPane
     private lateinit var body: FrameLayout
     private lateinit var settingsScroll: ScrollView
 
@@ -84,7 +88,7 @@ class ServerScreen(act: MainActivity, private val id: String) : Screen(act) {
 
         // Hero card and tab switcher live in one block that moves between the two tabs.
         hero = Hero()
-        val tabGroup = ChipGroup(act, listOf("Console", "Settings"), 0) { showTab(it) }
+        val tabGroup = ChipGroup(act, listOf("Console", "Settings", "Backups", "Files"), 0, compact = true) { showTab(it) }
         tabsRow = tabGroup.view
         topBlock = act.vbox(12)
         topBlock.add(hero.view)
@@ -100,8 +104,14 @@ class ServerScreen(act: MainActivity, private val id: String) : Screen(act) {
         settingsColumn = act.vbox(14).apply { setPadding(act.dp(16), 0, act.dp(16), act.dp(24)) }
         settingsSlot = act.vbox().apply { setPadding(0, act.dp(4), 0, 0) }
         settingsColumn.add(settingsSlot)
+        paneHolder = FrameLayout(act)
+        settingsColumn.add(paneHolder)
+        settingsPane = act.vbox(14)
         settingsScroll = ScrollView(act).apply { addView(settingsColumn) }
         if (p != null) buildSettings()
+        val running = { rt?.state?.value?.isActive == true }
+        backupsPane = BackupsPane(act, id, running)
+        filesPane = FilesPane(act, id, running)
 
         showTab(0)
         return root
@@ -139,6 +149,13 @@ class ServerScreen(act: MainActivity, private val id: String) : Screen(act) {
             body.addView(console.view, FrameLayout.LayoutParams(MATCH, MATCH))
         } else {
             settingsSlot.addView(topBlock)
+            paneHolder.removeAllViews()
+            when (i) {
+                1 -> paneHolder.addView(settingsPane)
+                2 -> { backupsPane.refresh(); paneHolder.addView(backupsPane.view) }
+                else -> { filesPane.refresh(); paneHolder.addView(filesPane.view) }
+            }
+            settingsScroll.scrollTo(0, 0)
             body.addView(settingsScroll, FrameLayout.LayoutParams(MATCH, MATCH))
         }
         applyKeyboard()
@@ -156,11 +173,18 @@ class ServerScreen(act: MainActivity, private val id: String) : Screen(act) {
                 .collect { (p, st) ->
                     if (p == null) return@collect
                     nameText.text = p.name
+                    // Automatic backups can be switched on in the Backups tab; keep the settings form from undoing that.
+                    if (::draft.isInitialized && draft.autoBackup != p.autoBackup) {
+                        draft = draft.copy(autoBackup = p.autoBackup)
+                        baseline = baseline.copy(autoBackup = p.autoBackup)
+                    }
                     hero.bind(p, st)
                     console.bind(st)
                 }
         }
         scope.launch { runtime.logs.collect { console.setLogs(it) } }
+        backupsPane.start(scope)
+        filesPane.start(scope)
         // Uptime ticks once a second, but only while the server is up.
         scope.launch {
             while (isActive) {
@@ -441,12 +465,8 @@ class ServerScreen(act: MainActivity, private val id: String) : Screen(act) {
     }
 
     private fun rebuildSettings() {
-        (topBlock.parent as? ViewGroup)?.removeView(topBlock)
-        settingsColumn.removeAllViews()
-        settingsSlot = act.vbox().apply { setPadding(0, act.dp(4), 0, 0) }
-        settingsColumn.add(settingsSlot)
+        settingsPane.removeAllViews()
         buildSettings()
-        showTab(tab) // puts the status block back where it belongs
     }
 
     private fun buildSettings() {
@@ -456,7 +476,7 @@ class ServerScreen(act: MainActivity, private val id: String) : Screen(act) {
         portText = baseline.port.toString()
         bedrockText = baseline.bedrockPort.toString()
         maxText = baseline.maxPlayers.toString()
-        val col = settingsColumn
+        val col = settingsPane
         val engines = app.engines.state.value
 
         col.add(act.section("General"))

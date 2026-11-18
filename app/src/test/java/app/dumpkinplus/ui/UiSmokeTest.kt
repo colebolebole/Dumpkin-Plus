@@ -115,4 +115,65 @@ class UiSmokeTest {
         assertTrue(app.manager.start("x1")!!.contains("engine", ignoreCase = true))
         assertFalse(app.manager.runtime("x1")!!.state.value.isActive)
     }
+
+    private fun waitFor(what: String, cond: () -> Boolean) {
+        repeat(150) {
+            if (cond()) return
+            Thread.sleep(20)
+            shadowOf(Looper.getMainLooper()).idle()
+        }
+        throw AssertionError("timed out waiting for $what")
+    }
+
+    @Test fun backupsTabBacksUpAndListsThem() {
+        val app = org.robolectric.RuntimeEnvironment.getApplication().dumpkin
+        app.manager.create(ServerProfile(id = "bk1", name = "Backed Up", port = 25580))
+        java.io.File(app.manager.dir("bk1"), "world").mkdirs()
+        java.io.File(app.manager.dir("bk1"), "world/level.dat").writeBytes(ByteArray(500))
+        val a = launch()
+        a.openServer("bk1")
+        settle()
+        find(root(a), "Backups")!!.performClick()
+        settle()
+        assertTrue(texts(root(a)).contains("Back up now"))
+        assertTrue(texts(root(a)).contains("No backups yet."))
+        find(root(a), "Back up now")!!.performClick()
+        waitFor("the backup") { app.manager.backups.list("bk1").isNotEmpty() }
+        settle()
+        assertTrue("list should show the new backup: ${texts(root(a))}", texts(root(a)).any { it.endsWith("Manual") })
+        assertTrue(texts(root(a)).contains("Restore"))
+        app.manager.backups.deleteAll("bk1")
+    }
+
+    @Test fun filesTabBrowsesTheServerFolderAndOpensTextFiles() {
+        val app = org.robolectric.RuntimeEnvironment.getApplication().dumpkin
+        app.manager.create(ServerProfile(id = "fl1", name = "Browsed", port = 25581))
+        java.io.File(app.manager.dir("fl1"), "world").mkdirs()
+        java.io.File(app.manager.dir("fl1"), "world/level.dat").writeBytes(ByteArray(500))
+        val a = launch()
+        a.openServer("fl1")
+        settle()
+        find(root(a), "Files")!!.performClick()
+        settle()
+        val top = texts(root(a))
+        assertTrue("folders get a trailing slash: $top", top.contains("world/"))
+        assertTrue(top.contains("pumpkin.toml"))
+        // Open the folder by tapping its row.
+        var row: View = find(root(a), "world/")!!
+        while (!row.isClickable) row = row.parent as View
+        row.performClick()
+        settle()
+        assertTrue(texts(root(a)).contains("level.dat"))
+        assertTrue("breadcrumb shows where we are", texts(root(a)).contains("world"))
+    }
+
+    @Test fun tuningTabShowsTheAppUpdateCard() {
+        val a = launch()
+        a.setTab(2)
+        settle()
+        val all = texts(root(a))
+        assertTrue(all.any { it.startsWith("Dumpkin+ ") })
+        assertTrue(all.contains("Check for updates"))
+        assertTrue(all.contains("Include pre-releases"))
+    }
 }

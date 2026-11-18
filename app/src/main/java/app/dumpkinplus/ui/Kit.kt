@@ -230,15 +230,17 @@ class ChipGroup(
     private val ctx: Context,
     labels: List<String>,
     selected: Int,
+    /** Tighter chips, so four tabs fit on one line of a small phone. */
+    private val compact: Boolean = false,
     private val onSelect: (Int) -> Unit,
 ) {
-    val view = FlowLayout(ctx, ctx.dp(8), ctx.dp(8))
+    val view = FlowLayout(ctx, ctx.dp(if (compact) 6 else 8), ctx.dp(8))
     private val chips = labels.mapIndexed { i, label ->
-        ctx.text(label, 14f).apply {
+        ctx.text(label, if (compact) 13.5f else 14f).apply {
             gravity = Gravity.CENTER
             minHeight = ctx.dp(40)
             minimumHeight = ctx.dp(40)
-            setPadding(ctx.dp(16), 0, ctx.dp(16), 0)
+            setPadding(ctx.dp(if (compact) 11 else 16), 0, ctx.dp(if (compact) 11 else 16), 0)
             setOnClickListener {
                 set(i)
                 onSelect(i)

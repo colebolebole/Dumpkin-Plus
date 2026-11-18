@@ -64,6 +64,8 @@ data class ServerProfile(
     val compression: Compression = Compression.Fast,
     /** Fetch/validate skins and capes on join. Turning it off trims join work but players may show default skins. */
     val fetchSkins: Boolean = true,
+    /** Back the server up each time it stops (the newest 5 automatic backups are kept). */
+    val autoBackup: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
@@ -86,6 +88,7 @@ data class ServerProfile(
         put("lightPing", lightPing)
         put("compression", compression.name)
         put("fetchSkins", fetchSkins)
+        put("autoBackup", autoBackup)
     }
 
     companion object {
@@ -120,6 +123,7 @@ data class ServerProfile(
             lightPing = o.optBoolean("lightPing", true),
             compression = Compression.entries.firstOrNull { it.name == o.optString("compression") } ?: Compression.Fast,
             fetchSkins = o.optBoolean("fetchSkins", true),
+            autoBackup = o.optBoolean("autoBackup", false),
         )
     }
 }

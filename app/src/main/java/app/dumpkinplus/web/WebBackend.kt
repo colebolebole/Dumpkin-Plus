@@ -1,8 +1,12 @@
 package app.dumpkinplus.web
 
+import app.dumpkinplus.backup.Backup
+import app.dumpkinplus.backup.BackupStatus
 import app.dumpkinplus.data.RuntimeState
 import app.dumpkinplus.data.ServerProfile
 import app.dumpkinplus.engine.EngineUiState
+import app.dumpkinplus.files.ServerFiles
+import java.io.File
 import app.dumpkinplus.server.LogSlice
 
 data class DeviceSnapshot(
@@ -53,4 +57,18 @@ interface WebBackend {
     /** @param remoteId id of an entry in [EngineUiState.remote]. @return false if there is no such build or a download is running. */
     fun engineDownload(remoteId: String): Boolean
     fun engineDelete(id: String): Boolean
+
+    /** The server's folder, or null if there is no such server. */
+    fun files(id: String): ServerFiles?
+
+    fun backups(id: String): List<Backup>
+    fun backupStatus(id: String): BackupStatus
+    fun backupFile(id: String, name: String): File?
+
+    /** Starts a backup in the background. @return null if it started, otherwise why it can't. */
+    fun backupNow(id: String, allowRunning: Boolean): String?
+
+    /** Starts restoring a backup in the background (the server must be stopped). @return null if it started, otherwise why not. */
+    fun restoreBackup(id: String, name: String): String?
+    fun deleteBackup(id: String, name: String): Boolean
 }

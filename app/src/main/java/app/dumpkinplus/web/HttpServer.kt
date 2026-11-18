@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.InetAddress
@@ -39,8 +40,10 @@ class HttpResponse(
     val status: Int,
     val headers: Map<String, String> = emptyMap(),
     val body: ByteArray = ByteArray(0),
+    /** When set, this file is streamed as the body (backups and world files can be far bigger than memory). */
+    val file: File? = null,
 ) {
-    fun withHeader(name: String, value: String) = HttpResponse(status, headers + (name to value), body)
+    fun withHeader(name: String, value: String) = HttpResponse(status, headers + (name to value), body, file)
 
     companion object {
         fun json(status: Int, value: JSONObject) = HttpResponse(
@@ -57,6 +60,17 @@ class HttpResponse(
 
         fun bytes(status: Int, contentType: String, body: ByteArray, cache: String = "no-cache") =
             HttpResponse(status, mapOf("Content-Type" to contentType, "Cache-Control" to cache), body)
+
+        /** Streams [file] as a download. Only the first [File.length] bytes are sent, even if the file is still growing. */
+        fun download(file: File, downloadName: String, contentType: String = "application/octet-stream") = HttpResponse(
+            200,
+            mapOf(
+                "Content-Type" to contentType,
+                "Cache-Control" to "no-store",
+                "Content-Disposition" to "attachment; filename=\"" + downloadName.replace(Regex("[^A-Za-z0-9._+-]"), "_") + "\"",
+            ),
+            file = file,
+        )
     }
 }
 
@@ -225,7 +239,8 @@ class HttpServer(
             "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; " +
                 "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         all.putAll(r.headers)
-        all["Content-Length"] = r.body.size.toString()
+        val streamLength = r.file?.length() ?: 0L
+        all["Content-Length"] = (if (r.file != null) streamLength else r.body.size.toLong()).toString()
         all["Connection"] = "close"
         for ((k, v) in all) {
             require(!k.contains('\r') && !k.contains('\n') && !v.contains('\r') && !v.contains('\n')) { "header injection" }
@@ -233,12 +248,27 @@ class HttpServer(
         }
         sb.append("\r\n")
         out.write(sb.toString().toByteArray(Charsets.ISO_8859_1))
-        if (!headOnly) out.write(r.body)
+        if (!headOnly) {
+            if (r.file != null) {
+                var left = streamLength
+                val buf = ByteArray(32 * 1024)
+                r.file.inputStream().use { input ->
+                    while (left > 0) {
+                        val n = input.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        left -= n
+                    }
+                }
+            } else {
+                out.write(r.body)
+            }
+        }
         out.flush()
     }
 
     private fun reason(status: Int) = when (status) {
-        200 -> "OK"; 201 -> "Created"; 204 -> "No Content"
+        200 -> "OK"; 201 -> "Created"; 202 -> "Accepted"; 204 -> "No Content"
         400 -> "Bad Request"; 401 -> "Unauthorized"; 403 -> "Forbidden"; 404 -> "Not Found"; 405 -> "Method Not Allowed"
         409 -> "Conflict"; 411 -> "Length Required"; 413 -> "Payload Too Large"; 429 -> "Too Many Requests"
         431 -> "Request Header Fields Too Large"; 500 -> "Internal Server Error"; 501 -> "Not Implemented"

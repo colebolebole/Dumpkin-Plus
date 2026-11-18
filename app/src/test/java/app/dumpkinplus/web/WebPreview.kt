@@ -41,6 +41,15 @@ class WebPreview {
             RuntimeState(Status.Crashed, error = "Exited with code 101"),
             listOf("▶ Starting \"Hardcore Test\" on port 25567", "thread 'main' panicked at config.rs:42", "✖ Could not launch the engine: Permission denied", "■ Process exited with code 101"),
         )
+        // A little world to browse and back up.
+        val smp = backend.serverDir("smp")
+        File(smp, "pumpkin.toml").writeText("default_gamemode = \"Survival\"\n\n[networking.java]\nmotd = \"Welcome to the SMP\"\nmax_players = 20\n")
+        File(smp, "whitelist.json").writeText("[]\n")
+        File(smp, "logs").mkdirs()
+        File(smp, "logs/latest.log").writeText("00:00:01 INFO Started server\n")
+        File(smp, "world/region").mkdirs()
+        File(smp, "world/level.dat").writeBytes(ByteArray(2048) { it.toByte() })
+        File(smp, "world/region/r.0.0.mca").writeBytes(ByteArray(4_500_000) { (it % 13).toByte() })
         val auth = WebAuth(password = { "preview-1234" })
         val web = File("src/main/assets/web")
         val api = WebApi(backend, auth) { File(web, it).takeIf { f -> f.isFile }?.readBytes() }

@@ -34,6 +34,7 @@ class TuningScreen(act: MainActivity) : Screen(act) {
     private val rows = LinkedHashMap<String, TextView>()
     private lateinit var deviceCard: LinearLayout
 
+    private val updateCard = UpdateCard(act)
     private val expanded = HashSet<String>()
     private var checkKey: List<Any> = emptyList()
     private val checkViews = HashMap<String, Pair<TextView, TextView>>()
@@ -47,6 +48,8 @@ class TuningScreen(act: MainActivity) : Screen(act) {
         banner = act.text("Checking…", 15f, bold = true)
         bannerCard.add(banner)
         page.add(bannerCard)
+
+        page.add(updateCard.view)
 
         page.add(act.section("This device"))
         deviceCard = act.card(16, 6)
@@ -103,6 +106,7 @@ class TuningScreen(act: MainActivity) : Screen(act) {
     }
 
     override fun onStart() {
+        scope.launch { app.updater.state.collect { updateCard.bind(it) } }
         scope.launch {
             while (isActive) {
                 val s = withContext(Dispatchers.IO) { readDeviceSnapshot(act) }

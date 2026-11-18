@@ -335,3 +335,21 @@ h3.label { font-size: 0.8125rem; font-weight: 650; color: var(--muted); letter-s
 .card > .hint { margin: -6px 0 14px; }
 .row-switch + .row-switch, .row-switch + .field, .field + .row-switch { margin-top: 6px; }
 .field .hint { margin-top: 2px; }
+
+/* ---------- files and backups ---------- */
+.actions-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.backup-status { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; padding: 10px 16px; border-radius: 16px; background: var(--tertiary-c); color: var(--on-tertiary-c); font-size: 0.9375rem; }
+.backup-status.error { background: var(--error-c); color: var(--on-error-c); }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin: 4px 0 12px; font-size: 0.9375rem; }
+.crumb, .linkish { background: none; border: 0; color: var(--primary); font: inherit; cursor: pointer; padding: 4px 8px; border-radius: 10px; }
+.crumb:hover, .linkish:hover { background: var(--surface-3); }
+.crumbs .sep { color: var(--muted); }
+.linkish { display: inline-flex; align-items: center; gap: 8px; padding: 2px 6px 2px 0; text-align: left; word-break: break-all; }
+.item .plain { display: inline-flex; align-items: center; gap: 8px; word-break: break-all; }
+.item .i.sm { flex: none; }
+.item a.btn, .item a.icon-btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.item .btn.small { flex: none; }
+@media (max-width: 560px) { .item { flex-wrap: wrap; } .item .grow { flex-basis: 100%; } }
+.dlg.wide { width: 100%; }
+dialog:has(.dlg.wide) { width: min(820px, calc(100vw - 24px)); }
+.dlg textarea.input { min-height: 320px; font-family: var(--mono); font-size: 0.8125rem; resize: vertical; }

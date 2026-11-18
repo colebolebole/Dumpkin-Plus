@@ -53,6 +53,20 @@ the other.
   It flags a new version, a new nightly, or the same version rebuilt (a changed checksum), puts a dot on the Engine tab, and
   updates in one tap. It checks when the app starts, at most every 6 hours (switch it off on the Engine tab), or on demand
   with **Check for updates**. This is for engines only: Dumpkin+ doesn't update itself.
+- **Backups.** Each server has a Backups tab: back up now, restore, export, import, delete, and an option to back up
+  automatically each time the server stops (the newest 5 automatic backups are kept; manual and imported ones never are).
+  A backup is a zip of the whole server folder. Restoring first takes a safety backup of the current files, so a mistaken
+  restore can be undone, and it refuses any zip that tries to write outside the server folder. Backups live in the app's own
+  folder (no storage permission needed) so uninstalling the app deletes them: export the ones you care about, with **Export** in
+  the app or **Download** in the dashboard.
+- **Files.** A file browser for each server, in the app and in the web dashboard: open and edit text files, download or export
+  any file, add files from the phone (app), make folders and delete (the server must be stopped to delete). Every path is
+  resolved against the server's real folder, so `..`, absolute paths and symlinks can't reach anything else.
+- **App updates.** The Tuning tab checks this repository's releases for a newer Dumpkin+, shows the release notes, downloads the
+  APK (checked against GitHub's SHA-256) and hands it to Android's own installer, so you always confirm the install. It checks
+  when the app starts, at most every 12 hours (switchable), and includes pre-releases by default because every build is still an
+  alpha. This is in the app only, not the dashboard. Android 8+ asks once to allow Dumpkin+ to install apps. An update only
+  installs if it is signed with the same key as the installed app.
 - **Import an engine from a file.** Very old Android versions often can't verify GitHub's certificates, and some CPUs
   have no download. Copy the engine to the phone and pick it in the Engine tab. It is checked against the phone's CPU
   before it is ever run, so a wrong-architecture file is refused with a clear message.
@@ -101,7 +115,8 @@ the phone, and use **Import from file**.
 
 Open the **Dashboard** tab and turn the switch on. Dumpkin+ starts a small web server on the phone (port `8080` by default).
 Open the address it shows in a browser on another device on the same Wi-Fi, sign in with the password from the same tab, and
-you can create, start, stop, restart and delete servers, watch the console, change every setting, edit `pumpkin.toml` and
+you can create, start, stop, restart and delete servers, watch the console, change every setting, browse and edit server files,
+make, download and restore backups, edit `pumpkin.toml` and
 manage engine downloads.
 
 The dashboard's page needs a reasonably modern browser (it uses current JavaScript), which means the PC or newer phone you
@@ -131,6 +146,11 @@ on every non-GET request.
 | `POST /api/servers/{id}/command` | Send a console command (`{"command": "list"}`) |
 | `GET /api/servers/{id}/logs?after=N` | Console lines after line `N` |
 | `GET`, `PUT /api/servers/{id}/config`, `POST .../config/reset` | Read, write or reset `pumpkin.toml` |
+| `GET`, `POST /api/servers/{id}/backups` | List backups (with the current job status and the auto-backup setting), or start one (`{"force": true}` if the server is running). Jobs run in the background; poll the list |
+| `POST /api/servers/{id}/backups/{name}/restore`, `DELETE .../backups/{name}`, `GET .../backups/{name}/download` | Restore (server must be stopped), delete or download a backup |
+| `GET /api/servers/{id}/files?path=` | List a folder of the server (`path` is relative to the server folder) |
+| `GET`, `PUT /api/servers/{id}/files/content` | Read or save a small text file (`{"path": ..., "text": ...}`) |
+| `GET /api/servers/{id}/files/download?path=`, `POST .../files/folder`, `DELETE .../files?path=` | Download a file, make a folder, delete (server must be stopped) |
 | `GET /api/engine`, `POST /api/engine/refresh`, `/download`, `DELETE /api/engine/{id}` | Manage engine builds |
 
 </details>
@@ -214,7 +234,8 @@ Release builds are signed with a private key that is **not** in this repository.
 
 ## Notes
 
-- Pumpkin is under heavy development and not every vanilla mechanic exists yet. **Keep backups of your worlds.**
+- Pumpkin is under heavy development and not every vanilla mechanic exists yet. **Keep backups of your worlds**, and export them off the phone.
+- Backups use plain zip, so a single backup over about 4 GB isn't supported. Backing up a running server can capture a world mid-write, which is why the app asks first. The dashboard can download, but not upload, files and backups; use the app's **Add file** and **Import a backup** for that.
 - If a server won't start after changing settings, use **Reset configuration** (Settings, Advanced). Pumpkin resets the whole
   config if a value has the wrong type, so Dumpkin+ only writes documented keys with values inside the documented ranges.
 
