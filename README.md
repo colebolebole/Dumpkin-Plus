@@ -11,6 +11,18 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/colebolebole/Dumpkin-Plus/releases"><img alt="Version 0.1.3-alpha" src="https://img.shields.io/badge/version-0.1.3--alpha-F58220"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-2EA44F"></a>
+  <img alt="Android 5.0 and newer" src="https://img.shields.io/badge/Android-5.0%2B-3DDC84?logo=android&logoColor=white">
+  <img alt="arm64 and 32-bit ARM" src="https://img.shields.io/badge/CPU-arm64%20%7C%20armv7-0091BD?logo=arm&logoColor=white">
+  <img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-orange">
+  <br>
+  <img alt="Plain Android views, no AndroidX" src="https://img.shields.io/badge/UI-plain%20Views-6750A4?logo=android&logoColor=white">
+  <img alt="Kotlin 2.2" src="https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white">
+  <img alt="Hosts Pumpkin, a Minecraft server written in Rust" src="https://img.shields.io/badge/hosts-Pumpkin-F58220?logo=rust&logoColor=white">
+</p>
+
+<p align="center">
   <img src="docs/screenshots/servers.png" alt="The Servers tab" width="200">
   &nbsp;
   <img src="docs/screenshots/console.png" alt="A running server with its live console" width="200">
